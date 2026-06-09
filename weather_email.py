@@ -4,10 +4,34 @@ import requests
 from email.message import EmailMessage
 from datetime import date, datetime
 
-# --- Configuration : coordonnées de Cap-Rouge, Québec ---
-LATITUDE = 46.75
-LONGITUDE = -71.35
-TIMEZONE = "America/Toronto"  # fuseau du Québec
+# --- Configuration : la liste des villes à inclure dans le courriel ---
+# Chaque ville a un nom, ses coordonnées (latitude/longitude) et son fuseau horaire.
+VILLES = [
+    {
+        "nom": "Cap-Rouge, Québec",
+        "latitude": 46.75,
+        "longitude": -71.35,
+        "timezone": "America/Toronto",
+    },
+    {
+        "nom": "Paris 19e, France",
+        "latitude": 48.88,
+        "longitude": 2.38,
+        "timezone": "Europe/Paris",
+    },
+    {
+        "nom": "Montesson, France",
+        "latitude": 48.91,
+        "longitude": 2.14,
+        "timezone": "Europe/Paris",
+    },
+    {
+        "nom": "Sahel Melbou, Algérie",
+        "latitude": 36.74,
+        "longitude": 5.34,
+        "timezone": "Africa/Algiers",
+    },
+]
 
 # --- Secrets : lus depuis les variables d'environnement (jamais en clair !) ---
 EMAIL_EXPEDITEUR = os.environ["EMAIL_EXPEDITEUR"]
@@ -18,18 +42,18 @@ EMAIL_DESTINATAIRE = os.environ["EMAIL_DESTINATAIRE"]
 JOURS_FR = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
 
 
-def obtenir_meteo():
-    """Appelle l'API gratuite Open-Meteo (aucune clé requise)."""
+def obtenir_meteo(ville):
+    """Appelle l'API gratuite Open-Meteo (aucune clé requise) pour une ville."""
     url = "https://api.open-meteo.com/v1/forecast"
     params = {
-        "latitude": LATITUDE,
-        "longitude": LONGITUDE,
-        # On ajoute "precipitation_probability_max" = la probabilité de pluie 🌧️
+        "latitude": ville["latitude"],
+        "longitude": ville["longitude"],
+        # "precipitation_probability_max" = la probabilité de pluie 🌧️
         "daily": (
             "temperature_2m_max,temperature_2m_min,"
             "precipitation_sum,precipitation_probability_max"
         ),
-        "timezone": TIMEZONE,
+        "timezone": ville["timezone"],
         "forecast_days": 8,  # aujourd'hui + les 7 prochains jours
     }
     reponse = requests.get(url, params=params, timeout=30)
@@ -49,8 +73,9 @@ def formater_jour(jour_iso, t_max, t_min, pluie, proba):
     )
 
 
-def construire_message(donnees):
-    """Transforme les données brutes en texte lisible."""
+def construire_bloc_ville(ville):
+    """Construit le bloc de texte météo (8 jours) pour une ville."""
+    donnees = obtenir_meteo(ville)
     jour = donnees["daily"]
     dates = jour["time"]
     t_max = jour["temperature_2m_max"]
@@ -70,33 +95,48 @@ def construire_message(donnees):
     )
 
     return (
+        f"📍 {ville['nom']}\n"
+        f"{ligne_aujourdhui}\n"
+        f"  🗓️  Prévisions des 7 prochains jours :\n"
+        f"{lignes_semaine}\n"
+    )
+
+
+def construire_message():
+    """Assemble le courriel complet avec toutes les villes."""
+    blocs = "\n".join(construire_bloc_ville(ville) for ville in VILLES)
+    return (
         f"Bonjour Menad !\n\n"
-        f"Voici la météo du jour pour Cap-Rouge, Québec "
+        f"Voici la météo du jour et des 7 prochains jours "
         f"({date.today():%d/%m/%Y}) :\n\n"
-        f"{ligne_aujourdhui}\n\n"
-        f"🗓️  Prévisions des 7 prochains jours :\n\n"
-        f"{lignes_semaine}\n\n"
+        f"{blocs}\n"
         f"Bonne journée !\n"
     )
 
 
 def envoyer_courriel(corps):
     """Envoie le courriel via le serveur SMTP sécurisé de Gmail."""
+    # EMAIL_DESTINATAIRE peut contenir plusieurs adresses séparées par des virgules.
+    destinataires = [
+        adresse.strip()
+        for adresse in EMAIL_DESTINATAIRE.split(",")
+        if adresse.strip()
+    ]
+
     message = EmailMessage()
-    message["Subject"] = f"Météo Cap-Rouge — {date.today():%d/%m/%Y}"
+    message["Subject"] = f"Météo (4 villes) — {date.today():%d/%m/%Y}"
     message["From"] = EMAIL_EXPEDITEUR
-    message["To"] = EMAIL_DESTINATAIRE
+    message["To"] = ", ".join(destinataires)
     message.set_content(corps)
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as serveur:
         serveur.login(EMAIL_EXPEDITEUR, EMAIL_MOT_DE_PASSE)
         serveur.send_message(message)
-    print("✅ Courriel envoyé avec succès !")
+    print(f"✅ Courriel envoyé à {len(destinataires)} destinataire(s) !")
 
 
 def main():
-    donnees = obtenir_meteo()
-    corps = construire_message(donnees)
+    corps = construire_message()
     envoyer_courriel(corps)
 
 
