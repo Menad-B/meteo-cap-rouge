@@ -1,0 +1,72 @@
+import os
+import smtplib
+import requests
+from email.message import EmailMessage
+from datetime import date
+
+# --- Configuration : coordonnées de Cap-Rouge, Québec ---
+LATITUDE = 46.75
+LONGITUDE = -71.35
+TIMEZONE = "America/Toronto"  # fuseau du Québec
+
+# --- Secrets : lus depuis les variables d'environnement (jamais en clair !) ---
+EMAIL_EXPEDITEUR = os.environ["EMAIL_EXPEDITEUR"]
+EMAIL_MOT_DE_PASSE = os.environ["EMAIL_MOT_DE_PASSE"]
+EMAIL_DESTINATAIRE = os.environ["EMAIL_DESTINATAIRE"]
+
+
+def obtenir_meteo():
+    """Appelle l'API gratuite Open-Meteo (aucune clé requise)."""
+    url = "https://api.open-meteo.com/v1/forecast"
+    params = {
+        "latitude": LATITUDE,
+        "longitude": LONGITUDE,
+        "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum",
+        "timezone": TIMEZONE,
+        "forecast_days": 1,
+    }
+    reponse = requests.get(url, params=params, timeout=30)
+    reponse.raise_for_status()  # déclenche une erreur si l'appel échoue
+    return reponse.json()
+
+
+def construire_message(donnees):
+    """Transforme les données brutes en texte lisible."""
+    jour = donnees["daily"]
+    t_max = jour["temperature_2m_max"][0]
+    t_min = jour["temperature_2m_min"][0]
+    pluie = jour["precipitation_sum"][0]
+
+    return (
+        f"Bonjour Menad !\n\n"
+        f"Voici la météo du jour pour Cap-Rouge, Québec "
+        f"({date.today():%d/%m/%Y}) :\n\n"
+        f"  Température max : {t_max} °C\n"
+        f"  Température min : {t_min} °C\n"
+        f"  Précipitations  : {pluie} mm\n\n"
+        f"Bonne journée !\n"
+    )
+
+
+def envoyer_courriel(corps):
+    """Envoie le courriel via le serveur SMTP sécurisé de Gmail."""
+    message = EmailMessage()
+    message["Subject"] = f"Météo Cap-Rouge — {date.today():%d/%m/%Y}"
+    message["From"] = EMAIL_EXPEDITEUR
+    message["To"] = EMAIL_DESTINATAIRE
+    message.set_content(corps)
+
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as serveur:
+        serveur.login(EMAIL_EXPEDITEUR, EMAIL_MOT_DE_PASSE)
+        serveur.send_message(message)
+    print("✅ Courriel envoyé avec succès !")
+
+
+def main():
+    donnees = obtenir_meteo()
+    corps = construire_message(donnees)
+    envoyer_courriel(corps)
+
+
+if __name__ == "__main__":
+    main()
