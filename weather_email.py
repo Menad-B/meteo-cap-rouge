@@ -48,11 +48,13 @@ def obtenir_meteo(ville):
     params = {
         "latitude": ville["latitude"],
         "longitude": ville["longitude"],
-        # "precipitation_probability_max" = la probabilité de pluie 🌧️
+        # Données par JOUR : min/max, pluie totale et probabilité max
         "daily": (
             "temperature_2m_max,temperature_2m_min,"
             "precipitation_sum,precipitation_probability_max"
         ),
+        # Données par HEURE : température et probabilité de pluie 🌧️ pour chaque heure
+        "hourly": "temperature_2m,precipitation_probability",
         "timezone": ville["timezone"],
         "forecast_days": 8,  # aujourd'hui + les 7 prochains jours
     }
@@ -62,19 +64,41 @@ def obtenir_meteo(ville):
 
 
 def formater_jour(jour_iso, t_max, t_min, pluie, proba):
-    """Met en forme une seule journée de météo en une ligne lisible."""
+    """Met en forme une seule journée de météo en une ligne lisible (résumé)."""
     # "jour_iso" ressemble à "2026-06-09" → on en tire le nom du jour
     d = datetime.strptime(jour_iso, "%Y-%m-%d").date()
     nom_jour = JOURS_FR[d.weekday()].capitalize()
     return (
         f"  {nom_jour} {d:%d/%m} : "
         f"min {t_min} °C / max {t_max} °C — "
-        f"pluie {pluie} mm (probabilité {proba} %)"
+        f"pluie {pluie} mm (probabilité max {proba} %)"
     )
 
 
+def formater_heures_aujourdhui(donnees):
+    """Construit le détail heure par heure POUR AUJOURD'HUI uniquement."""
+    heure = donnees["hourly"]
+    heures = heure["time"]            # ex: "2026-06-13T00:00"
+    temperatures = heure["temperature_2m"]
+    probabilites = heure["precipitation_probability"]
+
+    aujourdhui = date.today().isoformat()  # ex: "2026-06-13"
+    lignes = []
+    for i, horodatage in enumerate(heures):
+        # On ne garde que les heures de la journée d'aujourd'hui
+        if horodatage.startswith(aujourdhui):
+            hh = horodatage[11:16]  # extrait "00:00", "01:00", ...
+            temp = temperatures[i]
+            proba = probabilites[i]
+            lignes.append(f"    {hh} : {temp} °C — pluie {proba} %")
+    return "\n".join(lignes)
+
+
 def construire_bloc_ville(ville):
-    """Construit le bloc de texte météo (8 jours) pour une ville."""
+    """Construit le bloc de texte météo pour une ville :
+    - le détail heure par heure d'aujourd'hui
+    - le résumé des 7 prochains jours
+    """
     donnees = obtenir_meteo(ville)
     jour = donnees["daily"]
     dates = jour["time"]
@@ -83,12 +107,18 @@ def construire_bloc_ville(ville):
     pluie = jour["precipitation_sum"]
     proba = jour["precipitation_probability_max"]
 
-    # Indice 0 = aujourd'hui
-    ligne_aujourdhui = formater_jour(
-        dates[0], t_max[0], t_min[0], pluie[0], proba[0]
+    # En-tête : aujourd'hui (résumé min/max)
+    d0 = datetime.strptime(dates[0], "%Y-%m-%d").date()
+    nom_jour0 = JOURS_FR[d0.weekday()].capitalize()
+    entete_aujourdhui = (
+        f"  Aujourd'hui ({nom_jour0} {d0:%d/%m}) : "
+        f"min {t_min[0]} °C / max {t_max[0]} °C"
     )
 
-    # Indices 1 à 7 = les 7 prochains jours
+    # Détail heure par heure d'aujourd'hui
+    detail_heures = formater_heures_aujourdhui(donnees)
+
+    # Résumé des 7 prochains jours
     lignes_semaine = "\n".join(
         formater_jour(dates[i], t_max[i], t_min[i], pluie[i], proba[i])
         for i in range(1, len(dates))
@@ -96,7 +126,9 @@ def construire_bloc_ville(ville):
 
     return (
         f"📍 {ville['nom']}\n"
-        f"{ligne_aujourdhui}\n"
+        f"{entete_aujourdhui}\n\n"
+        f"  ⏰ Détail heure par heure (aujourd'hui) :\n"
+        f"{detail_heures}\n\n"
         f"  🗓️  Prévisions des 7 prochains jours :\n"
         f"{lignes_semaine}\n"
     )
