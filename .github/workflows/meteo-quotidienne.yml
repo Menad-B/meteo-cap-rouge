@@ -4,7 +4,7 @@ on:
   schedule:
     # 11:00 UTC = 7:00 du matin au Québec en été (HAE).
     # En hiver (HNE), remplace par "0 12 * * *" pour rester à 7:00.
-    - cron: "0 11 * * *"
+    - cron: "17 11 * * *"
   workflow_dispatch:   # permet aussi de lancer le robot manuellement (bouton)
 
 jobs:
